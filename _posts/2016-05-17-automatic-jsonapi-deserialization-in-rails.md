@@ -61,6 +61,41 @@ the value of `params` within the controller would be:
 }
 {% endhighlight %}
 
+Basically, the changes amount to:
+
++ registering the `application/vnd.api+json` MIME type:
+{% highlight ruby %}
+Mime::Type.register "application/vnd.api+json", :jsonapi
+{% endhighlight %}
++ declaring a JSON API parameter parser:
+{% highlight ruby %}
+jsonapi_parser = -> (json) {
+  json = ActiveSupport::JSON.decode(json)
+  data = ::JSONAPI.parse(json).data
+  return {} if data.nil?
+  hash = {}
+  hash["id"] = data.id unless data.id.nil?
+  hash["_type"] = data.type
+  hash.merge!(data.attributes.to_hash)
+  data.relationships.each do |name, rel|
+    if rel.data.respond_to?(:each)
+      hash["#{name.singularize}_ids"] = rel.data.map(&:id)
+      hash["#{name.singularize}_types"] = rel.data.map { |val| val.type.singularize.capitalize }
+    elsif !rel.data.nil?
+      hash["#{name}_id"] = rel.data.id
+      hash["#{name}_type"] = rel.data.type.singularize.capitalize
+    else
+      hash["#{name}_id"] = nil
+    end
+  end
+  hash
+}
+{% endhighlight %}
++ registering the parameter parser:
+{% highlight ruby %}
+ActionDispatch::Request.parameter_parsers.merge!(Mime[:jsonapi].symbol => jsonapi_parser)
+{% endhighlight %}
+
 [^1]: [`ActiveModelSerializers`](http://github.com/rails-api/active_model_serializers) and [`JSONAPI::Resources`](http://github.com/cerebris/jsonapi-resources) both have nearly full support.
 
 [^2]: A simple JSON schema is not sufficient here, as the format cannot be fully described as such (for instance the full linkage property).
